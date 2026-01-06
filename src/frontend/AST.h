@@ -273,6 +273,8 @@ void print_ast_node(ast_node_t node, uint32_t indentation);
 
 void free_ast_node(ast_node_t node);
 
+void free_ast(ast_node_t root);
+
 struct AST_NODE_STRUCT ast_node_data(ast_node_t node);
 
 #endif
