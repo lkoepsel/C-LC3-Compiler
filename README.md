@@ -22,12 +22,14 @@ Some compiler explorer integration features we are working on include:
 ### Build Instructions
 To build the compiler locally,
 1. Ensure you have CMake, and clang installed. 
+  `sudo apt install cmake`
 2. `git clone https://github.com/xavierrouth/C-LC3-Compiler.git`
 3. `cd C-LC3-Compiler`
 4. `mkdir build`
 5. `cd build`
 6. `cmake ..`
 7. `make`
+8. ./lc3-compile ../../lc3/main.c -S -v -o ../../lc3/main.asm
 
 To use the compiler without building from source we recommend using https://godbolt.org/.
 
