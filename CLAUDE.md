@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build (from project root)
 mkdir -p build && cd build && cmake .. && make
 
+# Install to user's local bin
+cp build/lc3-compile ~/.local/bin/lc3-compile
+
 # Run compiler
 ./build/lc3-compile [OPTIONS] file.c
 
