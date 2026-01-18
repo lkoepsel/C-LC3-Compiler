@@ -151,18 +151,18 @@ static int16_t emit_expression_node(ast_node_t node_h) {
             }
             case OP_ADD: {
                 int8_t r1 = 0;
-                // we can only use one immediate though.
-                if (left.type == A_INTEGER_LITERAL && left.as.expr.literal.value <= 15) {
-                    // If the leaf is an int literal, we can just use an immediate.
+                // we can only use one immediate if it fits in 5-bit signed range (-16 to 15)
+                int left_val = left.as.expr.literal.value;
+                int right_val = right.as.expr.literal.value;
+                if (left.type == A_INTEGER_LITERAL && left_val >= -16 && left_val <= 15) {
+                    // If the leaf is an int literal in range, we can just use an immediate.
                     r1 = emit_expression_node(node.as.expr.binary.right);
-                    int8_t val = left.as.expr.literal.value;
-                    emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = val}, &program_block);
+                    emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = left_val}, &program_block);
                     codegen_state.regfile[r1] = USED;
                 }
-                else if (right.type == A_INTEGER_LITERAL && right.as.expr.literal.value <= 15) {
+                else if (right.type == A_INTEGER_LITERAL && right_val >= -16 && right_val <= 15) {
                     r1 = emit_expression_node(node.as.expr.binary.left);
-                    int8_t val = right.as.expr.literal.value;
-                    emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = val}, &program_block);
+                    emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = right_val}, &program_block);
                     codegen_state.regfile[r1] = USED;
                 }
                 else {
@@ -176,17 +176,15 @@ static int16_t emit_expression_node(ast_node_t node_h) {
             }
             case OP_SUB: {
                 int32_t r1 = 0;
-                // we can only use one immediate though.
-                // If the left side is literal, oh well we can't do anything about that???
-                if (right.type == A_INTEGER_LITERAL) {
+                // we can only use immediate if negated value fits in 5-bit signed range (-16 to 15)
+                int32_t neg_val = -1 * right.as.expr.literal.value;
+                if (right.type == A_INTEGER_LITERAL && neg_val >= -16 && neg_val <= 15) {
                     r1 = emit_expression_node(node.as.expr.binary.left);
-                    int32_t val = -1 * right.as.expr.literal.value;
-                    emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = val}, &program_block);
-                    // TOOD: Only if the immediate is small enough
+                    emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = neg_val}, &program_block);
                     codegen_state.regfile[r1] = USED;
                 }
                 else {
-                    // Otherwise the val is in a register somehow.
+                    // Otherwise use register-based subtraction (NOT + ADD #1 + ADD reg)
                     r1 = emit_expression_node(node.as.expr.binary.left);
                     codegen_state.regfile[r1] = USED;
                     int32_t r2 = emit_expression_node(node.as.expr.binary.right);
@@ -318,14 +316,23 @@ static int16_t emit_expression_node(ast_node_t node_h) {
         return ret;
     }
     else if (node.type == A_INTEGER_LITERAL) {
-        // We probably just want to place this in a constant pool and load from there.
-        // Get a register to place this in
+        static uint16_t const_counter = 0;
         int val = node.as.expr.literal.value;
-        // TODO: If val is > 15 then we have to materialize this int somehow.
         int r1 = get_empty_reg();
-        emit_inst((lc3_instruction_t) {.opcode = ANDimm, .arg1 = r1, .arg2 = r1, .arg3 = 0}, &program_block);
-        if (val != 0) {
-            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = val}, &program_block);
+
+        // Check if value fits in 5-bit signed immediate (-16 to 15)
+        if (val >= -16 && val <= 15) {
+            emit_inst((lc3_instruction_t) {.opcode = ANDimm, .arg1 = r1, .arg2 = r1, .arg3 = 0}, &program_block);
+            if (val != 0) {
+                emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r1, .arg2 = r1, .arg3 = val}, &program_block);
+            }
+        }
+        else {
+            // Value exceeds immediate range, use data label and LD
+            char* const_label = format("CONST_%d", const_counter++);
+            emit_data(const_label, (lc3_directive_t) {.type = FILL, .value = (uint16_t)val}, &program_block);
+            emit_inst_comment((lc3_instruction_t) {.opcode = LD, .arg1 = r1, .label = const_label}, \
+                        format("load constant %d", val), &program_block);
         }
         codegen_state.regfile[r1] = USED;
         return r1;
