@@ -15,6 +15,8 @@
 
 extern int32_t symbol_ref_scopes[];
 extern int32_t var_decl_scopes[];
+extern int32_t func_decl_scopes[];
+extern symbol_table_t symbol_table;
 
 asm_block_t program_block;
 
@@ -638,7 +640,35 @@ void emit_ast_node(ast_node_t node_h) {
 
                 emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 5, .arg2 = 6, .arg3 = -1}, \
                             "set frame pointer", &program_block);
-                
+
+                emit_newline(&program_block);
+
+                // Emit stack frame variable offset comments
+                int32_t func_scope = func_decl_scopes[node_h];
+                emit_comment("stack frame:", &program_block);
+                for (int i = 0; i < symbol_table.idx; i++) {
+                    symbol_table_entry_t entry = symbol_table.data[i];
+                    // Check if entry is in function scope or a child scope
+                    int32_t scope = entry.scope;
+                    bool in_func_scope = false;
+                    while (scope != 0) {
+                        if (scope == func_scope) {
+                            in_func_scope = true;
+                            break;
+                        }
+                        scope = symbol_table.parent_scope[scope];
+                    }
+                    if (!in_func_scope)
+                        continue;
+                    if (entry.type == PARAMETER_ST_ENTRY) {
+                        char* comment = format("  +%d %s (param)", entry.offset + 4, entry.identifier);
+                        emit_comment(comment, &program_block);
+                    } else if (entry.type == VARIABLE_ST_ENTRY && !entry.type_info.specifier_info.is_static) {
+                        int32_t actual_offset = -1 * entry.offset;
+                        char* comment = format("  %d %s (local)", actual_offset, entry.identifier);
+                        emit_comment(comment, &program_block);
+                    }
+                }
                 emit_newline(&program_block);
 
                 emit_comment("function body:", &program_block);

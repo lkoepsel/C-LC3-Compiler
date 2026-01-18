@@ -15,6 +15,7 @@ static int32_t param_offsets[100];
 
 int32_t symbol_ref_scopes[100]; // Maps symbol references to the scope it is used in
 int32_t var_decl_scopes[100]; // Maps variable declarations to the scope it occurs in
+int32_t func_decl_scopes[100]; // Maps function declarations to the scope of the function body
 
 static int32_t new_scope() {
     static int32_t i = 0;
@@ -81,6 +82,7 @@ void analyze_ast_node(ast_node_t node_h) {
         case A_FUNCTION_DECL: {
             symbol_table_add(node.as.func_decl.token, curr_scope(), node.as.func_decl.type_info, FUNCTION_ST_ENTRY, 1, 1);
             enter_scope();
+            func_decl_scopes[node_h] = curr_scope();
             break;
         }
         // For statements have there own scope for vairables defined in them. They also have a child scope that is the compound statement / body.
