@@ -224,22 +224,113 @@ static int16_t emit_expression_node(ast_node_t node_h) {
     }
     else if (node.type == A_UNARY_EXPR) {
         switch (node.as.expr.unary.type) {
-            /**
-            case OP_INCREMENT: {
-                if (node.as.expr.unary.order == POSTFIX) {
-                    // Scratchpad register
-                    uint8_t result = get_empty_reg();
-                    // Load variable, add to it, return variable
-                    // Need to support things like (*i)++;
-                    // Basically need to implement lvalues and rvalues.
-                    uint8_t symbol = emit_expression_node(node.as.expr.unary.child);
+            case OP_INCREMENT:
+            case OP_DECREMENT: {
+                struct AST_NODE_STRUCT child = ast_node_data(node.as.expr.unary.child);
+                ast_node_t child_h = node.as.expr.unary.child;
+                int16_t increment = (node.as.expr.unary.type == OP_INCREMENT) ? 1 : -1;
+                const char* op_name = (node.as.expr.unary.type == OP_INCREMENT) ? "increment" : "decrement";
 
-                }   
-                else if (node.as.expr.unary.order == PREFIX) {
-                    // Increment, then return
+                // Case 1: Simple variable (A_SYMBOL_REF)
+                if (child.type == A_SYMBOL_REF) {
+                    symbol_table_entry_t symbol = symbol_table_search(child.as.expr.symbol.token, symbol_ref_scopes[child_h]);
+                    uint8_t r = get_empty_reg();
+                    codegen_state.regfile[r] = USED;
+
+                    // Load the variable's current value
+                    if (symbol.type_info.specifier_info.is_static) {
+                        char* var_name = format("%s.%s", current_function_name, symbol.identifier);
+                        emit_inst_comment((lc3_instruction_t) {.opcode = LD, .arg1 = r, .label = var_name},
+                                format("load static variable for %s", op_name), &program_block);
+                    } else if (symbol.type == PARAMETER_ST_ENTRY) {
+                        emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = r, .arg2 = 5, .arg3 = symbol.offset + 4},
+                                format("load parameter \"%s\" for %s", symbol.identifier, op_name), &program_block);
+                    } else {
+                        emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = r, .arg2 = 5, .arg3 = -1 * symbol.offset},
+                                format("load local variable \"%s\" for %s", symbol.identifier, op_name), &program_block);
+                    }
+
+                    if (node.as.expr.unary.order == POSTFIX) {
+                        // Postfix: save original value, then increment, store new, return original
+                        uint8_t result = get_empty_reg();
+                        codegen_state.regfile[result] = USED;
+                        emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = result, .arg2 = r, .arg3 = 0},
+                                "save original value for postfix", &program_block);
+                        emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r, .arg2 = r, .arg3 = increment}, &program_block);
+
+                        // Store new value back
+                        if (symbol.type_info.specifier_info.is_static) {
+                            char* var_name = format("%s.%s", current_function_name, symbol.identifier);
+                            emit_inst_comment((lc3_instruction_t) {.opcode = ST, .arg1 = r, .label = var_name},
+                                    format("store %sed value", op_name), &program_block);
+                        } else if (symbol.type == PARAMETER_ST_ENTRY) {
+                            emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = r, .arg2 = 5, .arg3 = symbol.offset + 4},
+                                    format("store %sed value", op_name), &program_block);
+                        } else {
+                            emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = r, .arg2 = 5, .arg3 = -1 * symbol.offset},
+                                    format("store %sed value", op_name), &program_block);
+                        }
+                        codegen_state.regfile[r] = UNUSED;
+                        return result;
+                    } else {
+                        // Prefix: increment first, store, return new value
+                        emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r, .arg2 = r, .arg3 = increment}, &program_block);
+
+                        // Store new value back
+                        if (symbol.type_info.specifier_info.is_static) {
+                            char* var_name = format("%s.%s", current_function_name, symbol.identifier);
+                            emit_inst_comment((lc3_instruction_t) {.opcode = ST, .arg1 = r, .label = var_name},
+                                    format("store %sed value", op_name), &program_block);
+                        } else if (symbol.type == PARAMETER_ST_ENTRY) {
+                            emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = r, .arg2 = 5, .arg3 = symbol.offset + 4},
+                                    format("store %sed value", op_name), &program_block);
+                        } else {
+                            emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = r, .arg2 = 5, .arg3 = -1 * symbol.offset},
+                                    format("store %sed value", op_name), &program_block);
+                        }
+                        codegen_state.regfile[r] = USED;
+                        return r;
+                    }
+                }
+                // Case 2: Dereferenced pointer (*p)
+                else if (child.type == A_UNARY_EXPR && child.as.expr.unary.type == OP_MUL) {
+                    // Get the address
+                    int16_t addr = emit_expression_node(child.as.expr.unary.child);
+                    codegen_state.regfile[addr] = USED;
+
+                    // Load the value at the address
+                    uint8_t val = get_empty_reg();
+                    codegen_state.regfile[val] = USED;
+                    emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = val, .arg2 = addr, .arg3 = 0},
+                            format("load value through pointer for %s", op_name), &program_block);
+
+                    if (node.as.expr.unary.order == POSTFIX) {
+                        // Postfix: save original, increment, store, return original
+                        uint8_t result = get_empty_reg();
+                        codegen_state.regfile[result] = USED;
+                        emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = result, .arg2 = val, .arg3 = 0},
+                                "save original value for postfix", &program_block);
+                        emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = val, .arg2 = val, .arg3 = increment}, &program_block);
+                        emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = val, .arg2 = addr, .arg3 = 0},
+                                format("store %sed value through pointer", op_name), &program_block);
+                        codegen_state.regfile[addr] = UNUSED;
+                        codegen_state.regfile[val] = UNUSED;
+                        return result;
+                    } else {
+                        // Prefix: increment, store, return new value
+                        emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = val, .arg2 = val, .arg3 = increment}, &program_block);
+                        emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = val, .arg2 = addr, .arg3 = 0},
+                                format("store %sed value through pointer", op_name), &program_block);
+                        codegen_state.regfile[addr] = UNUSED;
+                        codegen_state.regfile[val] = USED;
+                        return val;
+                    }
+                }
+                else {
+                    printf(ANSI_COLOR_RED "error: " ANSI_COLOR_RESET "increment/decrement requires an lvalue\n");
+                    return -1;
                 }
             }
-            */
             case OP_ADD: {
                 // Litreally doens't do anything, just return 
                 return emit_expression_node(node.as.expr.unary.child);
