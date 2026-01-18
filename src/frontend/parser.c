@@ -307,6 +307,8 @@ static ast_node_t parse_var_declaration(token_t id_token, type_info_t type_info)
 // Eats the braces:
 static ast_node_t parse_compound_statement();
 
+static ast_node_t parse_statement();
+
 /** If the expression is 'missing' i.e. == -1, then report an error and return true, otherwise return false*/
 static bool check_missing_expression(ast_node_t expr) {
     if (expr == -1) {
@@ -674,9 +676,8 @@ static ast_node_t parse_if_statement() {
         if_stmt = parse_compound_statement();
     }
     else {
-        // Can be a statement just not a declaration?? wtf.
-        if_stmt = parse_expression(0);
-        eat_token(T_SEMICOLON);
+        // Single statement without braces (e.g., return, expression, nested if, etc.)
+        if_stmt = parse_statement();
     }
     // Else part
     if (expect_token(T_ELSE)) {
@@ -685,8 +686,7 @@ static ast_node_t parse_if_statement() {
             else_stmt = parse_compound_statement();
         }
         else {
-            else_stmt = parse_expression(0);
-            eat_token(T_SEMICOLON);
+            else_stmt = parse_statement();
         }
     }
     ast_node_t node = ast_if_stmt_init(condition, if_stmt, else_stmt);

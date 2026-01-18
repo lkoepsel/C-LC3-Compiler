@@ -170,12 +170,15 @@ static MunitResult
 p_if_stmt_2(const MunitParameter params[], void* data) {
     ast_node_enum nodes_gold[] = {
         A_PROGRAM,
-        A_FUNCTION_DECL, // test
-        A_PARAM_DECL,
-        A_PARAM_DECL,
+        A_FUNCTION_DECL,
         A_COMPOUND_STMT,
-        A_RETURN_STMT,
+        A_VAR_DECL,
+        A_IF_STMT,
         A_BINARY_EXPR,
+        A_SYMBOL_REF,
+        A_INTEGER_LITERAL,
+        A_RETURN_STMT,
+        A_INTEGER_LITERAL,
     };
     int gold_size = sizeof(nodes_gold) / sizeof(nodes_gold[0]);
     //printf("size:%d\n", gold_size);
