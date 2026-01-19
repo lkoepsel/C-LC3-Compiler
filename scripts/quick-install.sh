@@ -1,6 +1,9 @@
 #!/bin/bash
 # LC3 C Compiler - Quick Install Script
-# Downloads and runs on a fresh Raspberry Pi in one command:
+# For RPi: 
+# Step 1: Update and Upgrade OS (manual entry)
+# sudo apt update && sudo apt full-upgrade -y
+# Step 2: Clone, build and test C compiler (this shell script)
 #   curl -fsSL https://raw.githubusercontent.com/lkoepsel/C-LC3-Compiler/main/scripts/quick-install.sh | bash
 
 set -e
