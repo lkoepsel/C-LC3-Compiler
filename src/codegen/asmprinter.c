@@ -7,7 +7,7 @@
 #include "asmprinter.h"
 #include "memory/bump_allocator.h"
 
-#define PRINTER_ALLOCATOR_SIZE 2048 * 16
+#define PRINTER_ALLOCATOR_SIZE 2048 * 64
 #define COMMENT_POSITION 30
 #define DIRECTIVE_POSITION 20
 #define INDENT 4

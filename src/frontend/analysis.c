@@ -10,12 +10,12 @@ extern symbol_table_t symbol_table;
 static int32_t scope_stack[8];
 static int32_t scope_stack_idx;
 
-static int32_t var_offsets[100];
-static int32_t param_offsets[100];
+static int32_t var_offsets[1000];
+static int32_t param_offsets[1000];
 
-int32_t symbol_ref_scopes[100]; // Maps symbol references to the scope it is used in
-int32_t var_decl_scopes[100]; // Maps variable declarations to the scope it occurs in
-int32_t func_decl_scopes[100]; // Maps function declarations to the scope of the function body
+int32_t symbol_ref_scopes[1000]; // Maps symbol references to the scope it is used in
+int32_t var_decl_scopes[1000]; // Maps variable declarations to the scope it occurs in
+int32_t func_decl_scopes[1000]; // Maps function declarations to the scope of the function body
 
 static int32_t new_scope() {
     static int32_t i = 0;

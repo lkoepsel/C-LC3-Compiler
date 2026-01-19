@@ -8,7 +8,7 @@
 #include "types.h"
 #include "token.h"
 
-#define SYMBOL_TABLE_MAX_SIZE 100
+#define SYMBOL_TABLE_MAX_SIZE 1000
 
 typedef struct SYMBOL_TABLE_ENTRY_STRUCT {
     char* identifier;

@@ -63,8 +63,8 @@ typedef struct {
 } asm_bundle_t;
 
 typedef struct ASM_BLOCK {
-    asm_bundle_t* instructions[64];
-    asm_bundle_t* data[16];
+    asm_bundle_t* instructions[512];
+    asm_bundle_t* data[64];
     uint16_t instructions_size;
     uint16_t data_size;
     char* header;

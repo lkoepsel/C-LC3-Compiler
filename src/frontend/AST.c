@@ -8,7 +8,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define MAX_NUM_AST_NODES 100
+#define MAX_NUM_AST_NODES 1000
 
 extern char id_buffer[];
 
