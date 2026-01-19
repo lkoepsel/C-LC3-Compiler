@@ -1,6 +1,6 @@
 # C-LC3-Compiler
 
-The original C-LC3-Compiler was a modern, student built, C compiler targeting the LC3 Assembly language as described in *Introduction to Computing* by Dr. Yale Patt and Dr. Sanjay Patel. This version has been updated by Lief Koepsel, by fixing some bugs and adding functionality. 
+The original C-LC3-Compiler is a modern, student built, C compiler targeting the LC3 Assembly language as described in *Introduction to Computing* by Dr. Yale Patt and Dr. Sanjay Patel. This fork has been updated by Lief Koepsel, by fixing some bugs and adding functionality. 
 
 The tool is mainly for educational purposes, and is specifically meant to help students taking CSCI11 - Computer Architecture at Monterey Peninsula College, however it should be relevant and useful to any student learning LC3 Assembly. The calling conventions implemented by the compiler mirror the conventions described in *Introduction to Computing*, any discrepancies are bugs.
 
@@ -26,7 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/lkoepsel/C-LC3-Compiler/main/script
 To build the compiler locally,
 1. Ensure you have CMake, and clang installed. 
   `sudo apt install cmake`
-2. `git clone https://github.com/xavierrouth/C-LC3-Compiler.git`
+2. `git clone https://github.com/lkoepsel/C-LC3-Compiler.git`
 3. `cd C-LC3-Compiler`
 4. `mkdir build`
 5. `cd build`
