@@ -135,7 +135,7 @@ static int16_t emit_expression_node(ast_node_t node_h) {
                     symbol_table_entry_t symbol = symbol_table_search(left.as.expr.symbol.token, symbol_ref_scopes[node.as.expr.binary.left]);
                     // Static Variable:
                     if (symbol.type_info.specifier_info.is_static) {
-                        char* var_name = format("%s.%s", current_function_name, symbol.identifier);
+                        char* var_name = format("%s_%s", current_function_name, symbol.identifier);
                         emit_inst_comment((lc3_instruction_t) {.opcode = ST, .arg1 = reg, .label = var_name}, \
                                         "assign to static variable", &program_block);
                         
@@ -241,7 +241,7 @@ static int16_t emit_expression_node(ast_node_t node_h) {
 
                     // Load the variable's current value
                     if (symbol.type_info.specifier_info.is_static) {
-                        char* var_name = format("%s.%s", current_function_name, symbol.identifier);
+                        char* var_name = format("%s_%s", current_function_name, symbol.identifier);
                         emit_inst_comment((lc3_instruction_t) {.opcode = LD, .arg1 = r, .label = var_name},
                                 format("load static variable for %s", op_name), &program_block);
                     } else if (symbol.type == PARAMETER_ST_ENTRY) {
@@ -262,7 +262,7 @@ static int16_t emit_expression_node(ast_node_t node_h) {
 
                         // Store new value back
                         if (symbol.type_info.specifier_info.is_static) {
-                            char* var_name = format("%s.%s", current_function_name, symbol.identifier);
+                            char* var_name = format("%s_%s", current_function_name, symbol.identifier);
                             emit_inst_comment((lc3_instruction_t) {.opcode = ST, .arg1 = r, .label = var_name},
                                     format("store %sed value", op_name), &program_block);
                         } else if (symbol.type == PARAMETER_ST_ENTRY) {
@@ -280,7 +280,7 @@ static int16_t emit_expression_node(ast_node_t node_h) {
 
                         // Store new value back
                         if (symbol.type_info.specifier_info.is_static) {
-                            char* var_name = format("%s.%s", current_function_name, symbol.identifier);
+                            char* var_name = format("%s_%s", current_function_name, symbol.identifier);
                             emit_inst_comment((lc3_instruction_t) {.opcode = ST, .arg1 = r, .label = var_name},
                                     format("store %sed value", op_name), &program_block);
                         } else if (symbol.type == PARAMETER_ST_ENTRY) {
@@ -495,7 +495,7 @@ void emit_ast_node(ast_node_t node_h) {
                             "write return value, always R5 + 3", &program_block);
                 }
                 // Need to know what funciton we are returning from somehow.
-                char* teardown_label = format("%s.teardown", current_function_name);
+                char* teardown_label = format("%s_teardown", current_function_name);
                 emit_inst((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 1, .label = teardown_label}, &program_block);
             }
             else { 
@@ -512,8 +512,8 @@ void emit_ast_node(ast_node_t node_h) {
         }
         case A_WHILE_STMT: {
             // Todo: Indent everything in the loop
-            char* loop_header_name = format("%s.while.%d", current_function_name, while_counter);
-            char* loop_end_name  = format("%s.while.%d.end", current_function_name, while_counter);
+            char* loop_header_name = format("%s_while_%d", current_function_name, while_counter);
+            char* loop_end_name  = format("%s_while_%d_end", current_function_name, while_counter);
 
             emit_label(loop_header_name, &program_block);
             int32_t r_condition = emit_expression_node(node.as.stmt._while.condition);
@@ -539,8 +539,8 @@ void emit_ast_node(ast_node_t node_h) {
 
             emit_ast_node(node.as.stmt._for.initilization);
 
-            char* loop_header_name = format("%s.for.%d", current_function_name, for_counter);
-            char* loop_end_name  = format("%s.for.%d.end", current_function_name, for_counter);
+            char* loop_header_name = format("%s_for_%d", current_function_name, for_counter);
+            char* loop_end_name  = format("%s_for_%d_end", current_function_name, for_counter);
 
             emit_label(loop_header_name, &program_block);
 
@@ -574,8 +574,8 @@ void emit_ast_node(ast_node_t node_h) {
             emit_inst_comment((lc3_instruction_t) {.opcode = ANDreg, .arg1 = r_condition, .arg2 = r_condition, .arg3 = r_condition}, \
                         "load condition into NZP", &program_block);
 
-            char* if_codegen_statement_end  = format("%s.if.%d.end", current_function_name, if_counter);
-            char* else_codegen_statement_name  = format("%s.if.%d", current_function_name, if_counter);
+            char* if_codegen_statement_end  = format("%s_if_%d_end", current_function_name, if_counter);
+            char* else_codegen_statement_name  = format("%s_if_%d", current_function_name, if_counter);
 
             // Else Statement:
             if (node.as.stmt._if.else_stmt != -1) {
@@ -674,7 +674,7 @@ void emit_ast_node(ast_node_t node_h) {
                 emit_comment("function body:", &program_block);
                 emit_ast_node(node.as.func_decl.body);
 
-                char* teardown_label = format("%s.teardown", current_function_name);
+                char* teardown_label = format("%s_teardown", current_function_name);
                 emit_label(teardown_label, &program_block);
                 
                 emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 5, .arg3 = 1}, \
@@ -721,7 +721,7 @@ void emit_ast_node(ast_node_t node_h) {
             
             else if (node.as.var_decl.type_info.specifier_info.is_static) {
                 // Static Local variable
-                char* identifier = format("%s.%s", current_function_name, node.as.var_decl.token.contents);
+                char* identifier = format("%s_%s", current_function_name, node.as.var_decl.token.contents);
                 // TODO: EMPHASIZE the fact that initial value of static vars in functions are implementation defined.
                 if (node.as.var_decl.initializer != -1) {
                     uint16_t init_value = ast_node_data(node.as.var_decl.initializer).as.expr.literal.value;
