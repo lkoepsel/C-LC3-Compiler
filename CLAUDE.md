@@ -20,6 +20,11 @@ cp build/lc3-compile ~/.local/bin/lc3-compile
 
 The build uses CMake with debug flags enabled by default. The compiler executable is named `lc3-compile`.
 
+**After committing changes**, always install the latest build:
+```bash
+cp build/lc3-compile ~/.local/bin/lc3-compile
+```
+
 ## Compiler Usage
 
 ```
