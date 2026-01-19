@@ -72,7 +72,7 @@ Report bugs to <xrouth2@illinois.edu>.
 To run the tests, run the `test` executable from the build directory.
 
 ### LC3Tools
-This project uses the [LC3Tools](https://github.com/chiragsakhuja/lc3tools) repository in order to assemble and verify the assembly generated from the compiler. Students working with LC3 may find tools from there helpful as well.
+This project uses the [LC3Tools](https://github.com/gt-cs2110/lc3tools) repository in order to assemble and verify the assembly generated from the compiler. Students working with LC3 may find tools from there helpful as well.
 
 ### Credits
 The C-LC3-Compiler is developed and maintained by students from [HKN-Alpha](https://hkn-alpha.netlify.app/) at UIUC.
