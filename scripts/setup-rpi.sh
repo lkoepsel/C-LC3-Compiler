@@ -9,7 +9,7 @@ echo ""
 
 # Update and upgrade system
 echo "Updating system packages..."
-sudo apt update && sudo apt upgrade -y
+sudo apt update && sudo apt full-upgrade -y
 
 # Install dependencies
 echo "Installing dependencies (git, cmake)..."
