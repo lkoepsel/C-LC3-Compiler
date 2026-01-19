@@ -1,0 +1,27 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "lc3-compile",
+            "detail": "Compile C file to LC3 assembly",
+            "type": "shell",
+            "command": "lc3-compile",
+            "args": [
+                "${file}",
+                "-S",
+                "-v",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}.asm"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}

@@ -33,7 +33,7 @@
 *.asm
 
 /.devcontainer
-/.vscode
+
 #
 /misc
 /build
