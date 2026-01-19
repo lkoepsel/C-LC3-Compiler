@@ -19,7 +19,23 @@ Some compiler explorer integration features we are working on include:
 - Instruction highlighting in source
 - Code execution
 
-### Build Instructions
+## Build Instructions
+
+### Raspberry Pi Install
+
+This is a two step install program which will update a freshly minted Raspberry Pi, install this repo, then build and test the C compiler.
+
+1. Update the Raspberry Pi to the latest:
+```bash
+sudo apt update && sudo apt full-upgrade -y
+```
+
+2. Clone, build and test the C Compiler
+```bash
+curl -fsSL https://raw.githubusercontent.com/lkoepsel/C-LC3-Compiler/main/scripts/quick-install.sh | bash
+```
+### Original Instructions to build locally
+
 To build the compiler locally,
 1. Ensure you have CMake, and clang installed. 
   `sudo apt install cmake`
@@ -31,15 +47,11 @@ To build the compiler locally,
 7. `make`
 8. ./lc3-compile ../../lc3/main.c -S -v -o ../../lc3/main.asm
 
-To use the compiler without building from source we recommend using https://godbolt.org/.
-
-### Usage Gudie
+### Usage Guide
 To run the compiler, use `lc3-compile`:
 
 ```
 Usage: lc3-compile [OPTION...] file...
-A C to LC3 Compiler built for students at the University of Illinois
-Urbana-Champaign by HKN (https://hkn-alpha.netlify.app).
 
   -g, --debug                Enable debugging information
   -o, --output=FILE          Output path
@@ -65,5 +77,5 @@ This project uses the [LC3Tools](https://github.com/chiragsakhuja/lc3tools) repo
 ### Credits
 The C-LC3-Compiler is developed and maintained by students from [HKN-Alpha](https://hkn-alpha.netlify.app/) at UIUC.
 
-### Contributing and Bug Reporting
-If you find a bug, please notify \<xrouth2 at illinois dot edu\>. We are always open to contributions, feel free to submit PRs or open discussion about what can be improved.
+This version (*lkoepsel*) has been extensively update with the help of Claude AI to fix some bugs and add functionality.
+
