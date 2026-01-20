@@ -33,6 +33,7 @@
 *.asm
 
 /.devcontainer
+.DS_Store
 
 #
 /misc
