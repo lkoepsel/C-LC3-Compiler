@@ -12,8 +12,8 @@ int sub_2(int a, int b)
 
 void main()
 {
-	int a = 5;
-	int b = 9;
+	int a = 21;
+	int b = 33;
 	int c = add_2(a, b);
 	int d = sub_2(a, b);
 	return;

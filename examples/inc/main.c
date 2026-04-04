@@ -1,7 +1,7 @@
 void main()
 {
-	int a = 0;
-	int b = 0;
+	int a = 3;
+	int b = 18;
 	a++;
 	b--;
 	return;
