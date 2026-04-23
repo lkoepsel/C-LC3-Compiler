@@ -70,7 +70,13 @@ void analyze_ast_node(ast_node_t node_h) {
             break;
         }
         case A_VAR_DECL: {
-            symbol_table_add(node.as.var_decl.token, curr_scope(),  node.as.var_decl.type_info, VARIABLE_ST_ENTRY, 1, var_offsets[curr_scope()]++);
+            type_info_t ti = node.as.var_decl.type_info;
+            uint16_t num_slots = 1;
+            if (ti.declarator.idx > 0 && ti.declarator.parts[0].type == ARRAY_DECL)
+                num_slots = ti.declarator.parts[0].array_size;
+            symbol_table_add(node.as.var_decl.token, curr_scope(), ti,
+                VARIABLE_ST_ENTRY, num_slots, var_offsets[curr_scope()]);
+            var_offsets[curr_scope()] += num_slots;
             var_decl_scopes[node_h] = curr_scope();
             break;
         }
@@ -100,14 +106,16 @@ void analyze_ast_node(ast_node_t node_h) {
         }
         case A_INLINE_ASM:
         case A_WHILE_STMT:
-        case A_ASSIGN_EXPR: 
-        case A_PROGRAM: 
-        case A_BINARY_EXPR: 
+        case A_ASSIGN_EXPR:
+        case A_PROGRAM:
+        case A_BINARY_EXPR:
         case A_FUNCTION_CALL:
         case A_RETURN_STMT:
-        case A_UNARY_EXPR: 
+        case A_UNARY_EXPR:
         case A_INTEGER_LITERAL:
         case A_IF_STMT:
+        case A_ARRAY_INIT:
+        case A_SUBSCRIPT_EXPR:
             break;
         default:
             printf("Error: Analysis traversal Unimplemented for this Node type");
