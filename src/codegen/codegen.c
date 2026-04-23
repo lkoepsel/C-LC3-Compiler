@@ -78,6 +78,20 @@ static int16_t emit_condition_node(ast_node_t node_h) {
 
             break;
         }
+        case OP_LT_EQUAL: {
+            emit_inst_comment((lc3_instruction_t) {.opcode = NOT, .arg1 = left, .arg2 = left}, "evaluate '<='", &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = left, .arg2 = left, .arg3 = 1}, &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDreg, .arg1 = ret, .arg2 = left, .arg3 = right}, &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = ret, .arg2 = ret, .arg3 = 1}, &program_block);
+            break;
+        }
+        case OP_GT_EQUAL: {
+            emit_inst_comment((lc3_instruction_t) {.opcode = NOT, .arg1 = right, .arg2 = right}, "evaluate '>='", &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = right, .arg2 = right, .arg3 = 1}, &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDreg, .arg1 = ret, .arg2 = left, .arg3 = right}, &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = ret, .arg2 = ret, .arg3 = 1}, &program_block);
+            break;
+        }
         case OP_EQUALS: {
             //TODO: Optimize this:
             emit_comment("please don't do equalsequals yet I am so sorry", &program_block);
@@ -696,7 +710,7 @@ void emit_ast_node(ast_node_t node_h) {
 
             else if (is_main) {
                 emit_ast_node(node.as.func_decl.body);
-                //emit_inst((lc3_instruction_t) {.opcode = HALT}, &program_block);
+                emit_inst((lc3_instruction_t) {.opcode = HALT}, &program_block);
             }
             return;
         }
