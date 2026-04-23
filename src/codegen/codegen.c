@@ -145,6 +145,31 @@ static int16_t emit_expression_node(ast_node_t node_h) {
                     codegen_state.regfile[addr] = UNUSED;
                 }
 
+                // Array subscript assignment: arr[i] = value
+                else if (left.type == A_SUBSCRIPT_EXPR) {
+                    struct AST_NODE_STRUCT base_node = ast_node_data(left.as.subscript.base);
+                    symbol_table_entry_t symbol = symbol_table_search(
+                        base_node.as.expr.symbol.token,
+                        symbol_ref_scopes[node.as.expr.binary.left]);
+
+                    int r_addr = get_empty_reg();
+                    codegen_state.regfile[r_addr] = USED;
+                    emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r_addr, .arg2 = 5, .arg3 = -1 * symbol.offset},
+                        format("address of \"%s\"[0]", symbol.identifier), &program_block);
+
+                    int r_idx = emit_expression_node(left.as.subscript.index);
+                    codegen_state.regfile[r_idx] = USED;
+                    emit_inst((lc3_instruction_t) {.opcode = NOT, .arg1 = r_idx, .arg2 = r_idx}, &program_block);
+                    emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r_idx, .arg2 = r_idx, .arg3 = 1}, &program_block);
+                    emit_inst_comment((lc3_instruction_t) {.opcode = ADDreg, .arg1 = r_addr, .arg2 = r_addr, .arg3 = r_idx},
+                        format("address of \"%s\"[i]", symbol.identifier), &program_block);
+                    codegen_state.regfile[r_idx] = UNUSED;
+
+                    emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = reg, .arg2 = r_addr, .arg3 = 0},
+                        format("store into \"%s\"[i]", symbol.identifier), &program_block);
+                    codegen_state.regfile[r_addr] = UNUSED;
+                }
+
                 else {
                     symbol_table_entry_t symbol = symbol_table_search(left.as.expr.symbol.token, symbol_ref_scopes[node.as.expr.binary.left]);
                     // Static Variable:
@@ -465,6 +490,37 @@ static int16_t emit_expression_node(ast_node_t node_h) {
         }
         return r1;
     }
+    else if (node.type == A_SUBSCRIPT_EXPR) {
+        // Compute address of arr[index] and load the value.
+        struct AST_NODE_STRUCT base_node = ast_node_data(node.as.subscript.base);
+        symbol_table_entry_t symbol = symbol_table_search(
+            base_node.as.expr.symbol.token,
+            symbol_ref_scopes[node.as.subscript.base]);
+
+        // r_addr = R5 + (-symbol.offset) = address of arr[0]
+        int r_addr = get_empty_reg();
+        codegen_state.regfile[r_addr] = USED;
+        emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r_addr, .arg2 = 5, .arg3 = -1 * symbol.offset},
+            format("address of \"%s\"[0]", symbol.identifier), &program_block);
+
+        // r_idx = index expression
+        int r_idx = emit_expression_node(node.as.subscript.index);
+        codegen_state.regfile[r_idx] = USED;
+
+        // Negate r_idx so we go downward in the stack (arr[i] = arr[0] - i)
+        emit_inst((lc3_instruction_t) {.opcode = NOT, .arg1 = r_idx, .arg2 = r_idx}, &program_block);
+        emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = r_idx, .arg2 = r_idx, .arg3 = 1}, &program_block);
+
+        // r_addr = r_addr + r_idx = address of arr[i]
+        emit_inst_comment((lc3_instruction_t) {.opcode = ADDreg, .arg1 = r_addr, .arg2 = r_addr, .arg3 = r_idx},
+            format("address of \"%s\"[i]", symbol.identifier), &program_block);
+        codegen_state.regfile[r_idx] = UNUSED;
+
+        // Load the value
+        emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = r_addr, .arg2 = r_addr, .arg3 = 0},
+            format("load \"%s\"[i]", symbol.identifier), &program_block);
+        return r_addr;
+    }
     printf(ANSI_COLOR_RED "error: " ANSI_COLOR_RESET "Unsupported C feature encountered, please rewrite your code to not use this feature.\n");
     print_ast_node(node_h, 2);
 }
@@ -747,24 +803,37 @@ void emit_ast_node(ast_node_t node_h) {
                 return;
             }
             else {
-                // Nonstatic Local Variable, ideally we should insert this 
-                // allocate space for local variable
-                emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1}, \
-                        format("Allocate space for \"%s\"", node.as.var_decl.token.contents), &program_block);
+                symbol_table_entry_t symbol = symbol_table_search(node.as.var_decl.token, var_decl_scopes[node_h]);
+                bool is_array = (symbol.size > 1);
 
-                if (node.as.var_decl.initializer != -1) {
-                    // TOOD: Assignment nodes should not really be separate, there should be an assignemnt expression.
-                    // But for now, we can kepe initialization separate, as for static ints it works different I suppose
-                    // Load a reg with the initializer value
-                    int reg = emit_expression_node(node.as.var_decl.initializer);
-                    symbol_table_entry_t symbol = symbol_table_search(node.as.var_decl.token, var_decl_scopes[node_h]);
+                if (is_array) {
+                    // Allocate N stack slots at once (N must fit in imm5: -16..15)
+                    int n = symbol.size;
+                    emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -n},
+                        format("Allocate %d slots for \"%s\"", n, symbol.identifier), &program_block);
 
-                    emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = reg, .arg2 = 5, .arg3 = -1 * symbol.offset}, \
+                    if (node.as.var_decl.initializer != -1) {
+                        struct AST_NODE_STRUCT init = ast_node_data(node.as.var_decl.initializer);
+                        // init.type == A_ARRAY_INIT
+                        for (int i = 0; i < init.as.array_init.count; i++) {
+                            int reg = emit_expression_node(init.as.array_init.elements.data[i]);
+                            emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = reg, .arg2 = 5, .arg3 = -1 * (symbol.offset + i)},
+                                format("Initialize \"%s\"[%d]", symbol.identifier, i), &program_block);
+                            codegen_state.regfile[reg] = UNUSED;
+                        }
+                    }
+                } else {
+                    // Nonstatic scalar local variable
+                    emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1},
+                        format("Allocate space for \"%s\"", symbol.identifier), &program_block);
+
+                    if (node.as.var_decl.initializer != -1) {
+                        int reg = emit_expression_node(node.as.var_decl.initializer);
+                        emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = reg, .arg2 = 5, .arg3 = -1 * symbol.offset},
                             format("Initialize \"%s\"", symbol.identifier), &program_block);
-
-                    codegen_state.regfile[reg] = UNUSED;
+                        codegen_state.regfile[reg] = UNUSED;
+                    }
                 }
-                // newline?
                 return;
             }
             
@@ -793,9 +862,10 @@ void emit_ast_node(ast_node_t node_h) {
             
         case A_FUNCTION_CALL:
         case A_UNARY_EXPR:
-        case A_BINARY_EXPR: 
-        case A_INTEGER_LITERAL: 
-        case A_SYMBOL_REF: 
+        case A_BINARY_EXPR:
+        case A_INTEGER_LITERAL:
+        case A_SYMBOL_REF:
+        case A_SUBSCRIPT_EXPR:
             emit_expression_node(node_h);
             return;
         
