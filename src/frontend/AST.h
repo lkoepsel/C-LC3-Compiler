@@ -108,6 +108,8 @@ typedef enum AST_NODE_ENUM {
     A_UNARY_EXPR,
     A_ASSIGN_EXPR,
     A_INTEGER_LITERAL,
+    A_ARRAY_INIT,       // brace initializer { v0, v1, ..., vN-1 }
+    A_SUBSCRIPT_EXPR,   // arr[idx]
 } ast_node_enum;
 
 // This is just a vector of handles.
@@ -214,6 +216,14 @@ struct AST_NODE_STRUCT {
             ast_node_vector body;
             uint32_t main; // index into symbol table??
         } program;
+        struct {
+            ast_node_vector elements;  // each child is A_INTEGER_LITERAL
+            uint16_t count;            // number of elements (inferred array size)
+        } array_init;
+        struct {
+            ast_node_t base;   // A_SYMBOL_REF for the array variable
+            ast_node_t index;  // any expression for the subscript
+        } subscript;
     } as;
 };
 
@@ -236,6 +246,8 @@ ast_node_t ast_param_decl_init(type_info_t type_info, token_t token);
 ast_node_t ast_func_decl_init(ast_node_t body, ast_node_vector parameters, type_info_t type_info, token_t token);
 ast_node_t ast_program_init(ast_node_vector body);
 ast_node_t ast_inline_asm_init(token_t token);
+ast_node_t ast_array_init_init(ast_node_vector elements, uint16_t count);
+ast_node_t ast_subscript_expr_init(ast_node_t base, ast_node_t index);
 // Takes a token type and returns the corresponding OP type.
 ast_op_enum token_to_op(token_enum type);
 

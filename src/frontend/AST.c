@@ -178,6 +178,20 @@ ast_node_t ast_inline_asm_init(token_t token) {
     return node;
 }
 
+ast_node_t ast_array_init_init(ast_node_vector elements, uint16_t count) {
+    ast_node_t node = ast_node_init(A_ARRAY_INIT);
+    ast_instances[node].as.array_init.elements = elements;
+    ast_instances[node].as.array_init.count = count;
+    return node;
+}
+
+ast_node_t ast_subscript_expr_init(ast_node_t base, ast_node_t index) {
+    ast_node_t node = ast_node_init(A_SUBSCRIPT_EXPR);
+    ast_instances[node].as.subscript.base = base;
+    ast_instances[node].as.subscript.index = index;
+    return node;
+}
+
 // Use this same buffer for all the thingies
 extern char print_buffer[128];
 static const char* ast_type_to_str(ast_node_enum type) {
@@ -199,6 +213,8 @@ static const char* ast_type_to_str(ast_node_enum type) {
         case A_IF_STMT: return "A_IF_STMT";
         case A_FOR_STMT: return "A_FOR_STMT";
         case A_WHILE_STMT: return "A_WHILE_STMT";
+        case A_ARRAY_INIT: return "A_ARRAY_INIT";
+        case A_SUBSCRIPT_EXPR: return "A_SUBSCRIPT_EXPR";
     }
     return "ast to string unimlpemented";
 }
@@ -382,6 +398,16 @@ void ast_traversal(ast_node_t root, ast_node_visitor* visitor) {
             ast_traversal(ast_instances[root].as.stmt._while.body, visitor);
             break;
         }
+        case A_ARRAY_INIT: {
+            for (int i = 0; i < ast_instances[root].as.array_init.count; i++)
+                ast_traversal(ast_instances[root].as.array_init.elements.data[i], visitor);
+            break;
+        }
+        case A_SUBSCRIPT_EXPR: {
+            ast_traversal(ast_instances[root].as.subscript.base, visitor);
+            ast_traversal(ast_instances[root].as.subscript.index, visitor);
+            break;
+        }
         // Terminal nodes:
         case A_INLINE_ASM:
         case A_PARAM_DECL:
@@ -543,11 +569,28 @@ void print_ast_node(ast_node_t node, uint32_t indentation) {
             return;
         }
         case A_INLINE_ASM: {
-            snprintf(print_buffer, 128, 
+            snprintf(print_buffer, 128,
                 "<node=%s, asm=\"%s\">\n",
                 ast_type_to_str(ast_instances[node].type),
                 ast_instances[node].as.stmt.inline_asm.token.contents
             );
+            printf_indent(indentation*3, print_buffer);
+            return;
+        }
+        case A_ARRAY_INIT: {
+            snprintf(print_buffer, 128,
+                "<node=%s, count=%d, size=%d>\n",
+                ast_type_to_str(ast_instances[node].type),
+                ast_instances[node].as.array_init.count,
+                ast_instances[node].size);
+            printf_indent(indentation*3, print_buffer);
+            return;
+        }
+        case A_SUBSCRIPT_EXPR: {
+            snprintf(print_buffer, 128,
+                "<node=%s, size=%d>\n",
+                ast_type_to_str(ast_instances[node].type),
+                ast_instances[node].size);
             printf_indent(indentation*3, print_buffer);
             return;
         }
@@ -578,6 +621,10 @@ void free_ast_node(ast_node_t node) {
         }
         case A_FUNCTION_CALL: {
             ast_node_vector_free(ast_instances[node].as.expr.call.arguments);
+            break;
+        }
+        case A_ARRAY_INIT: {
+            ast_node_vector_free(ast_instances[node].as.array_init.elements);
             break;
         }
     }

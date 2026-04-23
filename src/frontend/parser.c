@@ -372,9 +372,12 @@ static declarator_t parse_declarator(type_info_t* type_info, bool check_pointers
                     assert("Too many decl parts nested" && 0);
                 }
                 eat_token(T_LBRACKET);
-                // TODO: Support different texpressoins for array sizes
-                token_t array_size_token = eat_token(T_INTLITERAL);
-                uint16_t array_size = atoi(array_size_token.contents);
+                // TODO: Support different expressions for array sizes
+                uint16_t array_size = 0; // 0 = inferred from initializer
+                if (!expect_token(T_RBRACKET)) {
+                    token_t array_size_token = eat_token(T_INTLITERAL);
+                    array_size = atoi(array_size_token.contents);
+                }
                 eat_token(T_RBRACKET);
                 
                 left_decl.parts[left_decl.idx].type = ARRAY_DECL;
@@ -568,12 +571,17 @@ static ast_node_t parse_expression(uint16_t min_binding_power) {
                 // Function Call, eats parens
                 left = parse_function_call(left);
             }
+            else if (op_type == OP_LBRACKET) {
+                // Array subscript: arr[index]
+                next_token(); // eat '['
+                ast_node_t index = parse_expression(0);
+                eat_token(T_RBRACKET);
+                left = ast_subscript_expr_init(left, index);
+            }
             else {
                 next_token();
                 left = ast_unary_op_init(op_type, left, POSTFIX);
             }
-            // TODO: Test for '['
-            //ast_node_t child = parse_expression(0);
             
             continue;
         }
@@ -746,22 +754,51 @@ static ast_node_t parse_statement() {
     return expr_stmt;
 }
 
+static ast_node_t parse_brace_initializer(type_info_t* type_info) {
+    eat_token(T_LBRACE);
+    ast_node_vector elements = ast_node_vector_init(8);
+    while (!expect_token(T_RBRACE)) {
+        ast_node_t elem = parse_expression(0);
+        ast_node_vector_push(&elements, elem);
+        if (!expect_token(T_COMMA)) break;
+        eat_token(T_COMMA);
+    }
+    eat_token(T_RBRACE);
+    uint16_t count = elements.size;
+    // Write inferred size back into the declarator
+    for (int i = 0; i < type_info->declarator.idx; i++) {
+        if (type_info->declarator.parts[i].type == ARRAY_DECL &&
+            type_info->declarator.parts[i].array_size == 0) {
+            type_info->declarator.parts[i].array_size = count;
+            break;
+        }
+    }
+    return ast_array_init_init(elements, count);
+}
+
 static ast_node_t parse_declaration(type_info_t type_info) {
     // TODO: Implement multiple variable initialization.
     if (expect_token(T_ASSIGN)) {
         eat_token(T_ASSIGN);
-        // Parse variable initialization definition
-        ast_node_t initializer = parse_expression(0);
-        if (check_missing_expression(initializer)) {
-            skip_statement(); 
-            return -1;
+        ast_node_t initializer;
+        // Brace initializer for arrays: int arr[] = { ... }
+        bool is_array = (type_info.declarator.idx > 0 &&
+                         type_info.declarator.parts[0].type == ARRAY_DECL);
+        if (is_array && expect_token(T_LBRACE)) {
+            initializer = parse_brace_initializer(&type_info);
+        } else {
+            initializer = parse_expression(0);
+            if (check_missing_expression(initializer)) {
+                skip_statement();
+                return -1;
+            }
         }
         eat_token(T_SEMICOLON);
         ast_node_t node = ast_var_decl_init(initializer, type_info, type_info.identifier_token);
         return node;
     }
     else {
-        eat_token(T_SEMICOLON); 
+        eat_token(T_SEMICOLON);
         ast_node_t node = ast_var_decl_init(-1, type_info, type_info.identifier_token);
         return node;
     }
