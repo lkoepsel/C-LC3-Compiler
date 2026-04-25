@@ -14,4 +14,5 @@ int main()
         }
     }
     // printf("%d", max);
+    int RESULT = max;
 }
