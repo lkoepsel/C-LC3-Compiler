@@ -551,33 +551,13 @@ void emit_ast_node(ast_node_t node_h) {
         // Binops on immediates can be one instruction if the immediate is small enough.
         // How does one even do that?
         case A_RETURN_STMT: {
-            // Load the child into R0
-            // Check if its already in R0???
-            // No optimizations yet.
-            bool is_main = !strcmp(current_function_name, "main");
-
-            // Not main
-            if (!is_main) {
-                if (node.as.stmt._return.expression != -1) {
-                    int16_t reg = emit_expression_node(node.as.stmt._return.expression);
-                    // Write it into return value slot, which 
-                    emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = reg, .arg2 = 5, .arg3 = 3}, \
-                            "write return value, always R5 + 3", &program_block);
-                }
-                // Need to know what funciton we are returning from somehow.
-                char* teardown_label = format("%s_teardown", current_function_name);
-                emit_inst((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 1, .label = teardown_label}, &program_block);
+            if (node.as.stmt._return.expression != -1) {
+                int16_t reg = emit_expression_node(node.as.stmt._return.expression);
+                emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = reg, .arg2 = 5, .arg3 = 3}, \
+                        "write return value, always R5 + 3", &program_block);
             }
-            else { 
-                // Write reg to return slot
-                if ((node.as.stmt._return.expression != -1)) {
-                    int16_t reg = emit_expression_node(node.as.stmt._return.expression);
-                    emit_inst_comment((lc3_instruction_t) {.opcode = STI, .arg1 = reg, .label = "RETURN_SLOT"}, \
-                            "write return value from main", &program_block);
-                }
-                emit_inst((lc3_instruction_t) {.opcode = HALT}, &program_block);
-            }
-            
+            char* teardown_label = format("%s_teardown", current_function_name);
+            emit_inst((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 1, .label = teardown_label}, &program_block);
             return;
         }
         case A_WHILE_STMT: {
@@ -686,88 +666,81 @@ void emit_ast_node(ast_node_t node_h) {
             return;
         }
         case A_FUNCTION_DECL: {
-            bool is_main = !strcmp(node.as.func_decl.token.contents, "main");
             current_function_name = node.as.func_decl.token.contents;
 
             emit_label(current_function_name, &program_block);
 
-            if (!is_main) {
-                emit_comment("callee setup:", &program_block);
+            // main is treated like any other function: JSR main / RET back to bootstrap HALT
+            emit_comment("callee setup:", &program_block);
 
-                // TODO: Enable condensed callee setup. 
-                emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1}, \
-                            "allocate spot for return value", &program_block);
+            // TODO: Enable condensed callee setup.
+            emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1}, \
+                        "allocate spot for return value", &program_block);
 
-                emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1}, &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1}, &program_block);
 
-                emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = 7, .arg2 = 6, .arg3 = 0}, \
-                            "push R7 (return address)", &program_block);
+            emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = 7, .arg2 = 6, .arg3 = 0}, \
+                        "push R7 (return address)", &program_block);
 
-                emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1}, &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = -1}, &program_block);
 
-                emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = 5, .arg2 = 6, .arg3 = 0}, \
-                            "push R5 (caller frame pointer)", &program_block);
+            emit_inst_comment((lc3_instruction_t) {.opcode = STR, .arg1 = 5, .arg2 = 6, .arg3 = 0}, \
+                        "push R5 (caller frame pointer)", &program_block);
 
-                emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 5, .arg2 = 6, .arg3 = -1}, \
-                            "set frame pointer", &program_block);
+            emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 5, .arg2 = 6, .arg3 = -1}, \
+                        "set frame pointer", &program_block);
 
-                emit_newline(&program_block);
+            emit_newline(&program_block);
 
-                // Emit stack frame variable offset comments
-                int32_t func_scope = func_decl_scopes[node_h];
-                emit_comment("stack frame:", &program_block);
-                for (int i = 0; i < symbol_table.idx; i++) {
-                    symbol_table_entry_t entry = symbol_table.data[i];
-                    // Check if entry is in function scope or a child scope
-                    int32_t scope = entry.scope;
-                    bool in_func_scope = false;
-                    while (scope != 0) {
-                        if (scope == func_scope) {
-                            in_func_scope = true;
-                            break;
-                        }
-                        scope = symbol_table.parent_scope[scope];
+            // Emit stack frame variable offset comments
+            int32_t func_scope = func_decl_scopes[node_h];
+            emit_comment("stack frame:", &program_block);
+            for (int i = 0; i < symbol_table.idx; i++) {
+                symbol_table_entry_t entry = symbol_table.data[i];
+                // Check if entry is in function scope or a child scope
+                int32_t scope = entry.scope;
+                bool in_func_scope = false;
+                while (scope != 0) {
+                    if (scope == func_scope) {
+                        in_func_scope = true;
+                        break;
                     }
-                    if (!in_func_scope)
-                        continue;
-                    if (entry.type == PARAMETER_ST_ENTRY) {
-                        char* comment = format("  +%d %s (param)", entry.offset + 4, entry.identifier);
-                        emit_comment(comment, &program_block);
-                    } else if (entry.type == VARIABLE_ST_ENTRY && !entry.type_info.specifier_info.is_static) {
-                        int32_t actual_offset = -1 * entry.offset;
-                        char* comment = format("  %d %s (local)", actual_offset, entry.identifier);
-                        emit_comment(comment, &program_block);
-                    }
+                    scope = symbol_table.parent_scope[scope];
                 }
-                emit_newline(&program_block);
-
-                emit_comment("function body:", &program_block);
-                emit_ast_node(node.as.func_decl.body);
-
-                char* teardown_label = format("%s_teardown", current_function_name);
-                emit_label(teardown_label, &program_block);
-                
-                emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 5, .arg3 = 1}, \
-                            "pop local variables", &program_block);
-                
-                emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = 5, .arg2 = 6, .arg3 = 0}, \
-                            "pop frame pointer", &program_block);
-
-                emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = 1}, &program_block);
-
-                emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = 7, .arg2 = 6, .arg3 = 0}, \
-                            "pop return address", &program_block);
-
-                emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = 1}, &program_block);
-                emit_inst((lc3_instruction_t) {.opcode = RET}, &program_block);
-                emit_comment("end function", &program_block);
-                emit_newline(&program_block);
+                if (!in_func_scope)
+                    continue;
+                if (entry.type == PARAMETER_ST_ENTRY) {
+                    char* comment = format("  +%d %s (param)", entry.offset + 4, entry.identifier);
+                    emit_comment(comment, &program_block);
+                } else if (entry.type == VARIABLE_ST_ENTRY && !entry.type_info.specifier_info.is_static) {
+                    int32_t actual_offset = -1 * entry.offset;
+                    char* comment = format("  %d %s (local)", actual_offset, entry.identifier);
+                    emit_comment(comment, &program_block);
+                }
             }
+            emit_newline(&program_block);
 
-            else if (is_main) {
-                emit_ast_node(node.as.func_decl.body);
-                emit_inst((lc3_instruction_t) {.opcode = HALT}, &program_block);
-            }
+            emit_comment("function body:", &program_block);
+            emit_ast_node(node.as.func_decl.body);
+
+            char* teardown_label = format("%s_teardown", current_function_name);
+            emit_label(teardown_label, &program_block);
+
+            emit_inst_comment((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 5, .arg3 = 1}, \
+                        "pop local variables", &program_block);
+
+            emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = 5, .arg2 = 6, .arg3 = 0}, \
+                        "pop frame pointer", &program_block);
+
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = 1}, &program_block);
+
+            emit_inst_comment((lc3_instruction_t) {.opcode = LDR, .arg1 = 7, .arg2 = 6, .arg3 = 0}, \
+                        "pop return address", &program_block);
+
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = 6, .arg2 = 6, .arg3 = 1}, &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = RET}, &program_block);
+            emit_comment("end function", &program_block);
+            emit_newline(&program_block);
             return;
         }
         case A_PARAM_DECL: 

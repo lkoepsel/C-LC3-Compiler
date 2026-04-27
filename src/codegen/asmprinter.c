@@ -218,7 +218,7 @@ static void write_block(asm_block_t* block) {
 }
 
 static void write_program_header() {
-    write(".ORIG x3000\nLD R6, USER_STACK\nADD R5, R6, #-1\nJSR main\n");
+    write(".ORIG x3000\nLD R6, USER_STACK\nADD R5, R6, #-1\nJSR main\nHALT\n");
     write("\n");
 }
 
