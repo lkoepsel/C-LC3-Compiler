@@ -30,7 +30,6 @@
 *.exe
 *.out
 *.app
-*.asm
 
 /.devcontainer
 .DS_Store

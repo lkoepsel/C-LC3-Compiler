@@ -63,6 +63,16 @@ The main entry point (`entry/main.c`) orchestrates: `build_ast()` → `analysis(
 - `asmprinter.c` - Assembly block representation, emits LC3 instructions/directives
 - `multiply.h` - Multiply/divide/modulo subroutine generation
 
+**Calling Convention (caller-cleanup, textbook LC3)**
+- Bootstrap is hard-coded in `asmprinter.c` (`write_program_header`): `LD R6, USER_STACK / ADD R5, R6, #-1 / JSR main / HALT`. The `HALT` after `JSR main` is the program's single exit point.
+- `main` is treated as a regular function — same prologue, teardown, and `RET` as any other function. There is no `is_main` special-casing in the codegen.
+- Frame pointer R5 is stable for the duration of a function; stack pointer R6 tracks live usage. Locals are at `R5+0, R5-1, ...`; saved R5 at `R5+1`, saved R7 at `R5+2`, return value at `R5+3`; parameters at `R5+4, R5+5, ...`.
+- Arguments are pushed right-to-left by the caller. The caller pops the return slot and arguments after `RET`.
+
+**Comparison Codegen**
+- `emit_condition_branch(cond_node, false_label)` is the single entry point for `if`, `while`, and `for` conditions. It emits `left - right` (NZP set as a side effect of the final `ADD`) and selects the `BR` variant whose flags equal the negation of the comparison: `< → BRzp`, `> → BRnz`, `<= → BRp`, `>= → BRn`, `== → BRnp`, `!= → BRz`. Non-comparison conditions use `BRz` to skip when zero.
+- `emit_condition_node` (older, less correct path) is still called when a comparison is used as a *value* (`int x = a < b;`). It returns the difference in a register rather than a 0/1 boolean — known limitation, separate from `emit_condition_branch`.
+
 **Memory (`src/memory/`)**
 - `bump_allocator.c` - Linear allocation for compile-time memory (no freeing)
 - `linear_pool_allocator.c` - Pool-based alternative

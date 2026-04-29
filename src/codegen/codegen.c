@@ -42,6 +42,7 @@ void emit_ast(ast_node_t root) {
 static char* current_function_name;
 
 static int16_t emit_expression_node(ast_node_t node_h);
+static void emit_condition_branch(ast_node_t cond_h, char* false_label);
 
 // static void get_address(symbol);
 
@@ -120,6 +121,58 @@ static int16_t emit_condition_node(ast_node_t node_h) {
     }
     codegen_state.regfile[ret] = USED;
     return ret;
+}
+
+// Emit a comparison and branch to false_label when the condition is false.
+// Picks the LC3 branch variant that *is* the negation of the C operator,
+// avoiding the boundary-shift trick and the redundant AND-to-reload-NZP.
+static void emit_condition_branch(ast_node_t cond_h, char* false_label) {
+    struct AST_NODE_STRUCT cond = ast_node_data(cond_h);
+
+    if (cond.type == A_BINARY_EXPR) {
+        int op = cond.as.expr.binary.type;
+        if (op == OP_LT || op == OP_GT || op == OP_LT_EQUAL ||
+            op == OP_GT_EQUAL || op == OP_EQUALS || op == OP_NOTEQUALS) {
+
+            int16_t right = emit_expression_node(cond.as.expr.binary.right);
+            codegen_state.regfile[right] = USED;
+            int16_t left = emit_expression_node(cond.as.expr.binary.left);
+            codegen_state.regfile[right] = UNUSED;
+            codegen_state.regfile[left] = UNUSED;
+
+            // Compute left - right; the final ADD sets NZP as a side effect.
+            emit_inst_comment((lc3_instruction_t) {.opcode = NOT, .arg1 = right, .arg2 = right},
+                "two's complement of right operand", &program_block);
+            emit_inst((lc3_instruction_t) {.opcode = ADDimm, .arg1 = right, .arg2 = right, .arg3 = 1}, &program_block);
+            emit_inst_comment((lc3_instruction_t) {.opcode = ADDreg, .arg1 = left, .arg2 = left, .arg3 = right},
+                "left - right; sets NZP", &program_block);
+
+            // Branch to false_label when the negation of the comparison holds.
+            // arg1=N, arg2=Z, arg3=P bits in the BR opcode.
+            int n = 0, z = 0, p = 0;
+            char* comment = "";
+            switch (op) {
+                case OP_LT:        n=0; z=1; p=1; comment = "if false (>=), skip"; break;
+                case OP_GT:        n=1; z=1; p=0; comment = "if false (<=), skip"; break;
+                case OP_LT_EQUAL:  n=0; z=0; p=1; comment = "if false (>), skip";  break;
+                case OP_GT_EQUAL:  n=1; z=0; p=0; comment = "if false (<), skip";  break;
+                case OP_EQUALS:    n=1; z=0; p=1; comment = "if false (!=), skip"; break;
+                case OP_NOTEQUALS: n=0; z=1; p=0; comment = "if false (==), skip"; break;
+            }
+            emit_inst_comment((lc3_instruction_t) {.opcode = BR, .arg1 = n, .arg2 = z, .arg3 = p, .label = false_label},
+                comment, &program_block);
+            return;
+        }
+    }
+
+    // Non-comparison condition (e.g., `if (x)`): evaluate, then BRz to skip
+    // body when the value is zero. Matches C semantics for truthiness.
+    int16_t r = emit_expression_node(cond_h);
+    emit_inst_comment((lc3_instruction_t) {.opcode = ANDreg, .arg1 = r, .arg2 = r, .arg3 = r},
+        "load condition into NZP", &program_block);
+    emit_inst_comment((lc3_instruction_t) {.opcode = BR, .arg1 = 0, .arg2 = 1, .arg3 = 0, .label = false_label},
+        "if false (zero), skip", &program_block);
+    codegen_state.regfile[r] = UNUSED;
 }
 
 // Sethi-Ullman Register Allocation for the expression rooted at this node.
@@ -566,14 +619,7 @@ void emit_ast_node(ast_node_t node_h) {
             char* loop_end_name  = format("%s_while_%d_end", current_function_name, while_counter);
 
             emit_label(loop_header_name, &program_block);
-            int32_t r_condition = emit_expression_node(node.as.stmt._while.condition);
-            
-            emit_inst_comment((lc3_instruction_t) {.opcode = ANDreg, .arg1 = r_condition, .arg2 = r_condition, .arg3 = r_condition}, \
-                        "load condition into NZP", &program_block);
-
-            
-            emit_inst_comment((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 0, .label = loop_end_name}, \
-                        "if false, skip over loop body", &program_block);
+            emit_condition_branch(node.as.stmt._while.condition, loop_end_name);
 
             emit_ast_node(node.as.stmt._while.body);
 
@@ -595,15 +641,7 @@ void emit_ast_node(ast_node_t node_h) {
             emit_label(loop_header_name, &program_block);
 
             emit_comment("test condition", &program_block);
-            int32_t r_condition = emit_expression_node(node.as.stmt._for.condition);
-            emit_newline(&program_block);
-
-            emit_inst_comment((lc3_instruction_t) {.opcode = ANDreg, .arg1 = r_condition, .arg2 = r_condition, .arg3 = r_condition}, \
-                        "load condition into NZP", &program_block);
-            
-            
-            emit_inst_comment((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 0, .label = loop_end_name}, \
-                        "if false, skip over loop body", &program_block);
+            emit_condition_branch(node.as.stmt._for.condition, loop_end_name);
 
             emit_ast_node(node.as.stmt._for.body);
 
@@ -619,24 +657,18 @@ void emit_ast_node(ast_node_t node_h) {
             return;
         }
         case A_IF_STMT: {
-            int16_t r_condition = emit_expression_node(node.as.stmt._if.condition);
-            emit_newline(&program_block);
-            emit_inst_comment((lc3_instruction_t) {.opcode = ANDreg, .arg1 = r_condition, .arg2 = r_condition, .arg3 = r_condition}, \
-                        "load condition into NZP", &program_block);
-
             char* if_codegen_statement_end  = format("%s_if_%d_end", current_function_name, if_counter);
             char* else_codegen_statement_name  = format("%s_if_%d", current_function_name, if_counter);
 
             // Else Statement:
             if (node.as.stmt._if.else_stmt != -1) {
-                emit_inst_comment((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 0, .label = else_codegen_statement_name}, \
-                        "if false, jump to else codegen_statement", &program_block);
+                emit_condition_branch(node.as.stmt._if.condition, else_codegen_statement_name);
 
                 emit_newline(&program_block);
                 emit_ast_node(node.as.stmt._if.if_stmt);
 
-                emit_inst((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 0, .label = if_codegen_statement_end}, &program_block);
-                
+                emit_inst((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 1, .label = if_codegen_statement_end}, &program_block);
+
                 emit_label(else_codegen_statement_name, &program_block);
 
                 emit_newline(&program_block);
@@ -646,11 +678,10 @@ void emit_ast_node(ast_node_t node_h) {
 
             } // No Else Statement:
             else {
-                emit_inst_comment((lc3_instruction_t) {.opcode = BR, .arg1 = 1, .arg2 = 1, .arg3 = 0, .label = if_codegen_statement_end}, \
-                        "if false, jump over codegen_statement", &program_block);
+                emit_condition_branch(node.as.stmt._if.condition, if_codegen_statement_end);
                 emit_newline(&program_block);
                 emit_ast_node(node.as.stmt._if.if_stmt);
-                
+
                 emit_label(if_codegen_statement_end, &program_block);
             }
             if_counter++;

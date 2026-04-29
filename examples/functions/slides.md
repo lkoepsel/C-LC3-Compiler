@@ -1,23 +1,26 @@
-# Stack Frames and the Frame Pointer in LC3
+# Functions: The Calling Convention in LC3
+
+A walk through how multiple functions interact at the assembly level: passing arguments, returning values, and the contract between caller and callee. This deck builds on the `abs` deck — the program-entry handshake, R5/R6 split, prologue, teardown, and two's-complement negation are introduced there and are reused unchanged here.
 
 ---
 
-## Slide 1: The C Source Code
-
-We compile two simple functions and a `main` that calls them:
+## Slide 1: The C Source — Three Functions, Two Calls
 
 ```c
-int add_2(int a, int b) {
+int add_2(int a, int b)
+{
     int c = a + b;
     return c;
 }
 
-int sub_2(int a, int b) {
+int sub_2(int a, int b)
+{
     int c = a - b;
     return c;
 }
 
-void main() {
+void main()
+{
     int a = 21;
     int b = 33;
     int c = add_2(a, b);
@@ -26,162 +29,190 @@ void main() {
 }
 ```
 
-Each function has **two parameters** and **one local variable** — a compact but complete example of the calling convention.
+Three functions, four locals in `main`, two function calls. Each callee has the **same shape** as `main` had in the `abs` example: prologue, body, teardown, `RET`. What's new in this example is the *handshake* between functions — how arguments arrive, how a return value gets back, and who is responsible for cleaning up which part of the stack.
 
 ---
 
-## Slide 2: The Three Key Registers
+## Slide 2: The Caller–Callee Contract
 
-| Register | Role | Changes when... |
-|----------|------|-----------------|
-| **R6** | Stack Pointer — always points to the top item on the stack | something is pushed or popped |
-| **R5** | Frame Pointer — anchors the current function's stack frame | a new function is entered or returned from |
-| **R7** | Return Address — set by `JSR`, holds where to return | every `JSR` call |
+A function call is a four-step handshake. Each step is the responsibility of exactly one party.
 
-The stack **grows downward** (toward lower addresses). Pushing decrements R6; popping increments R6.
+| Step | Who | What |
+|------|-----|------|
+| 1. Push arguments | **Caller** | Push args right-to-left, then `JSR` |
+| 2. Build frame | **Callee** | Reserve return slot, save R7 & R5, set new R5 (covered in `abs` Slide 4) |
+| 3. Execute body | **Callee** | Use parameters and locals via `R5 ± offset` |
+| 4. Write return value | **Callee** | Store result into the return slot at `R5 + 3` |
+| 5. Tear down | **Callee** | Pop locals, restore R5 & R7, `RET` (covered in `abs` Slide 8) |
+| 6. Read result, pop args | **Caller** | Read return value at `R6 + 0`, then pop |
 
-> **Why a frame pointer?** R6 moves constantly as temporaries come and go. R5 stays fixed for the entire function, so every variable has a stable address: `R5 + offset`.
+Notice the asymmetry: the *callee* allocates the return slot (during its prologue), but the *caller* removes it (during cleanup). The slot is also the only piece of the stack that survives `RET` for the caller to read.
+
+The rest of these slides expand each row of this table that is unique to multi-function programs — rows 1, 4, and 6.
 
 ---
 
-## Slide 3: Caller's Actions — Pushing Arguments
+## Slide 3: Pushing Arguments — Right-to-Left
 
-Before calling `add_2`, `main` pushes arguments **right-to-left** (b first, then a):
+Before each `JSR`, the caller pushes the function's arguments onto the stack. The convention is **right-to-left**: the *last* parameter is pushed *first*, so the *first* parameter ends up *on top* of the stack.
 
 ```asm
-; push b (argument 2 first)
-LDR R0, R5, #-1            ; load local variable "b"
-ADD R6, R6, #-1
-STR R0, R6, #0             ; push b onto stack
+; in main, calling add_2(a, b):
 
-; push a (argument 1 second, so it's on top)
-LDR R0, R5, #0             ; load local variable "a"
-ADD R6, R6, #-1
-STR R0, R6, #0             ; push a onto stack
+    LDR R0, R5, #-1   ; load b (main's local)
+    ADD R6, R6, #-1
+    STR R0, R6, #0    ; push b first
 
-JSR add_2                  ; R7 = return address, jump to add_2
+    LDR R0, R5, #0    ; load a (main's local)
+    ADD R6, R6, #-1
+    STR R0, R6, #0    ; push a second (now on top)
+
+    JSR add_2         ; R7 ← return address, jump
 ```
 
-Stack after `JSR add_2` (R6 → a, b is one slot below):
+After the two pushes and the `JSR`, the stack from `add_2`'s perspective looks like:
 
 ```
   ...
-  [ b ]   ← pushed first (higher address)
-  [ a ]   ← pushed second (lower address, top of stack) ← R6
+  [   b   ]   ← pushed first  (further from new R5)
+  [   a   ]   ← pushed second (closer to new R5)   ← R6
 ```
 
-Arguments are always pushed in reverse order so that the first parameter ends up closest to the frame pointer.
+Why right-to-left? It makes parameter offsets predictable from the callee's side. After `add_2`'s prologue saves R7 and R5 *below* the arguments, the layout becomes deterministic: parameter *N* always lands at `R5 + (3 + N)`. The first parameter is at `R5 + 4`, the second at `R5 + 5`, regardless of how many arguments there are.
 
 ---
 
-## Slide 4: Callee Setup — Building the Stack Frame
+## Slide 4: The Stack Frame from the Callee's View
 
-The first thing `add_2` does is build its own frame:
-
-```asm
-add_2
-    ADD R6, R6, #-1        ; reserve one slot for the return value
-    ADD R6, R6, #-1
-    STR R7, R6, #0         ; save return address (R7)
-    ADD R6, R6, #-1
-    STR R5, R6, #0         ; save caller's frame pointer (R5)
-    ADD R5, R6, #-1        ; set new frame pointer (R5 = R6 - 1)
-```
-
-Five steps, in order:
-1. **Reserve a return-value slot** — the caller will read the answer from here after `RET`.
-2. **Save R7** — `JSR` overwrote it; we must preserve it so `RET` works.
-3. **Save R5** — the caller's frame pointer must be restored before we return.
-4. **Set new R5** — R5 now anchors *this* function's frame. It does not move again until teardown.
-
----
-
-## Slide 5: The Complete Stack Frame
-
-After callee setup and allocating local `c`, the stack looks like this:
+After `add_2` runs its prologue, the full frame looks like this — parameters above R5, saved bookkeeping in the middle, locals below:
 
 ```
 Higher addresses
-  ┌───────────┐
-  │     b     │  ← R5 + 5   (second parameter, pushed first)
-  ├───────────┤
-  │     a     │  ← R5 + 4   (first parameter, pushed second)
-  ├───────────┤
-  │ ret value │  ← R5 + 3   (return slot, filled before RET)
-  ├───────────┤
-  │ saved R7  │  ← R5 + 2   (return address)
-  ├───────────┤
-  │ saved R5  │  ← R5 + 1   (caller's frame pointer)
-  ├───────────┤
-  │     c     │  ← R5 + 0   (local variable)  ← R6 (stack top)
-  └───────────┘
+  ┌──────────────┐
+  │      b       │  ← R5 + 5    (param, pushed first by caller)
+  ├──────────────┤
+  │      a       │  ← R5 + 4    (param, pushed second by caller)
+  ├──────────────┤
+  │ return value │  ← R5 + 3    (callee writes; caller reads)
+  ├──────────────┤
+  │   saved R7   │  ← R5 + 2
+  ├──────────────┤
+  │   saved R5   │  ← R5 + 1
+  ├──────────────┤
+  │      c       │  ← R5 + 0    (local) ← R6
+  └──────────────┘
 Lower addresses
 ```
 
-R5 never moves during the function body. Every variable — parameter or local — is reached with a fixed `R5 + offset`.
+Two halves divided by R5:
+- **Above R5** (positive offsets): things provided *by* or *for* the caller — parameters and the return slot. These are part of the **call interface**.
+- **Below R5** (zero or negative offsets): things owned entirely by the callee — its local variables.
 
----
-
-## Slide 6: Accessing Variables Via the Frame Pointer
-
-Because R5 is fixed, every load and store uses it as a base:
+The compiler uses this split when it generates code:
 
 ```asm
 ; int c = a + b;
-LDR R0, R5, #4        ; load parameter "a"  (R5 + 4)
-LDR R1, R5, #5        ; load parameter "b"  (R5 + 5)
+LDR R0, R5, #4     ; load parameter "a" (R5 + 4)
+LDR R1, R5, #5     ; load parameter "b" (R5 + 5)
 ADD R0, R0, R1
-STR R0, R5, #0        ; store result into local "c"  (R5 + 0)
-
-; return c;
-LDR R0, R5, #0        ; load local "c"
-STR R0, R5, #3        ; write into return-value slot  (R5 + 3)
-BR  add_2_teardown
+STR R0, R5, #0     ; store local "c"   (R5 + 0)
 ```
 
-**Key insight:** The compiler assigns each variable a compile-time offset from R5. Whether the variable is a parameter or a local, the generated code always uses `LDR Rx, R5, #offset` or `STR Rx, R5, #offset` — no runtime pointer arithmetic needed.
+Notice the assembly has no idea whether `a` and `b` were pushed by `main`, by `sub_2`, or by some other caller. The contract guarantees the layout, and that's all the codegen needs to know.
 
 ---
 
-## Slide 7: Callee Teardown — Unwinding the Frame
+## Slide 5: Returning a Value — Writing to `R5 + 3`
 
-Before returning, `add_2` must restore the caller's world:
+The C statement `return c;` becomes two instructions: store the result into the return-value slot, then branch to teardown.
 
 ```asm
-add_2_teardown
-    ADD R6, R5, #1        ; discard all locals (R6 → saved R5 slot)
-    LDR R5, R6, #0        ; restore caller's frame pointer
-    ADD R6, R6, #1        ; advance past saved R5 (R6 → saved R7 slot)
-    LDR R7, R6, #0        ; restore return address
-    ADD R6, R6, #1        ; advance past saved R7 (R6 → return-value slot)
-    RET                   ; jump to R7; R6 now points at return value
+LDR R0, R5, #0          ; load local "c"
+STR R0, R5, #3          ; write return value, always R5 + 3
+BR  add_2_teardown      ; single-exit funneling
 ```
 
-After `RET`, the stack pointer sits **exactly** on the return-value slot — the value the callee wrote in Slide 6. The caller reads it from there.
+Why `R5 + 3`? Look back at the frame diagram. The prologue (in `abs` Slide 4) reserves *one slot above the saved R7 and R5* — and `R5 + 3` is exactly that slot. It is the same offset for every function, regardless of how many parameters there are or how big the local block is.
 
-Teardown order is the reverse of setup: locals → saved R5 → saved R7 → RET.
+This keeps the rule simple for students: **return values always go to R5 + 3.** The compiler hard-codes that offset; the caller hard-codes that offset too (read further on).
+
+`BR add_2_teardown` is the single-exit funnel from `abs` Slide 8 — every `return` statement in the function routes through one teardown sequence rather than emitting cleanup inline at each return point.
 
 ---
 
-## Slide 8: Caller Cleanup — Reading the Return Value
+## Slide 6: Caller Cleanup — Read First, Then Pop
 
-Back in `main`, after `JSR add_2` returns:
+After `RET` brings control back to the caller, the stack still holds three caller-visible slots: the return value, then the two arguments below it.
 
-```asm
-LDR R0, R6, #0        ; read return value (R6 points to it)
-ADD R6, R6, #1        ; pop the return-value slot
-ADD R6, R6, #2        ; pop the two arguments (a and b)
-STR R0, R5, #-2       ; store result into local "c" in main
+```
+  ...
+  [   b   ]
+  [   a   ]
+  [ retval ]   ← R6
 ```
 
-**Caller cleans up the arguments** — not the callee. This is the LC3 textbook convention (caller-cleanup). The return value lives for exactly one instruction after `RET`; the caller must read it before adjusting R6.
+The caller's cleanup code reads the return value first, then pops everything in one shot:
 
-Summary of responsibilities:
+```asm
+JSR add_2
+LDR R0, R6, #0       ; read return value (R6 still points to it)
+ADD R6, R6, #1       ; pop the return slot
+ADD R6, R6, #2       ; pop the two arguments
+STR R0, R5, #-2      ; store result into main's local "c"
+```
 
-| Who | What |
-|-----|------|
-| Caller (before call) | push args right-to-left, `JSR` |
-| Callee (entry) | reserve return slot, save R7 & R5, set R5 |
-| Callee (body) | access everything through R5 offsets |
-| Callee (exit) | fill return slot, restore R5 & R7, `RET` |
-| Caller (after call) | read return value, pop return slot + args |
+Order matters. The return value's lifetime ends the moment R6 advances past its slot — once popped, that memory is fair game for the next call or trap. Two cardinal rules:
+
+- **Read before popping.** `LDR R0, R6, #0` must come before `ADD R6, R6, #1`.
+- **The caller pops the arguments, not the callee.** This is "caller cleanup," the LC3 textbook convention. It lets each caller decide what to do with the args (most just discard them).
+
+---
+
+## Slide 7: Subtraction in `sub_2` — Reusing the Negation Idiom
+
+`sub_2` does `a - b`. LC3 has no `SUB` instruction, so the compiler builds it from the parts it has:
+
+```asm
+; int c = a - b;
+LDR R0, R5, #4     ; R0 = a
+LDR R1, R5, #5     ; R1 = b
+NOT R1, R1         ; \ two's-complement negate b:
+ADD R1, R1, #1     ; /  R1 = -b
+ADD R0, R0, R1     ; R0 = a + (-b) = a - b
+STR R0, R5, #0     ; store local "c"
+```
+
+This is the same `NOT / ADD #1` idiom from `abs` Slide 5, now serving as the back half of subtraction: `a - b ≡ a + (-b)`. The same two instructions also appear inside the `>=` evaluation in `abs` Slide 6, and inside the unary minus `-number` in `abs` Slide 7. One pattern, three contexts — once recognized, it becomes invisible scaffolding around the actual logic.
+
+---
+
+## Slide 8: A Full Call Trace — `int c = add_2(a, b)`
+
+Tie everything together by watching the stack across the entire call. Initial state is partway through `main`, with `a = 21` and `b = 33` already on the stack and a slot reserved for `c`.
+
+```
+Step                           R6 →  Stack contents (top to bottom)
+─────────────────────────────  ────  ────────────────────────────────
+in main (before pushes)         [c] | (c, b=33, a=21, ...)
+push b                          [b] | b=33, c, b=33, a=21, ...
+push a                          [a] | a=21, b=33, c, b=33, a=21, ...
+JSR add_2 (R7=ret addr)         [a] | a=21, b=33, c, b=33, a=21, ...
+prologue: reserve return slot   [?] | ?, a, b, c, b, a, ...
+prologue: push R7               [R7]| R7, ?, a, b, c, b, a, ...
+prologue: push R5               [R5]| R5, R7, ?, a, b, c, b, a, ...
+prologue: set R5 = R6 - 1        ─  | (R5 now points one below)
+allocate local c                [c=0]| c, R5, R7, ?, a, b, c, b, a, ...
+body: c = a + b                  ─  | (c slot now holds 54)
+return: store 54 at R5+3         ─  | (? slot now holds 54)
+BR teardown                      ─  | ─
+teardown: ADD R6, R5, #1        [R5]| R5, R7, 54, a, b, c, b, a, ...
+pop saved R5                    [R7]| R7, 54, a, b, c, b, a, ...
+pop saved R7                    [54]| 54, a, b, c, b, a, ...
+RET (jumps to R7)               [54]| 54, a=21, b=33, c, b=33, a=21, ...
+LDR R0, R6, #0  →  R0 = 54      [54]| 54, a, b, c, ...
+ADD R6, #1   (pop retval)       [a] | a, b, c, ...
+ADD R6, #2   (pop args)         [c] | c, ...
+STR R0 into c                    ─  | (c slot now holds 54)
+```
+
+Every region of the stack is the responsibility of *exactly one* party at any moment. The arguments are written by the caller and read by the callee. The return slot is written by the callee and read by the caller. The locals are private to whichever function R5 is currently pointing into. The contract is what makes all of this work — and what lets the compiler generate caller code and callee code completely independently.
